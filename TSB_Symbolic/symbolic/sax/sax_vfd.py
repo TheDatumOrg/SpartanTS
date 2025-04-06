@@ -1,0 +1,370 @@
+#adapted from sktime:https://github.com/sktime/sktime/blob/v0.25.0/sktime/transformations/panel/dictionary_based/_sax.py
+""""""
+
+import sys
+
+import numpy as np
+import pandas as pd
+import scipy.stats
+
+from ..paa.paa_sax_vfd import PAASAXVFD
+from ..paa.paa_approx import PAA
+
+class SAXVFD():
+    """.
+
+    as described in
+    Jessica Lin, Eamonn Keogh, Li Wei and Stefano Lonardi,
+    "Experiencing SAX: a novel symbolic representation of time series"
+    Data Mining and Knowledge Discovery, 15(2):107-144
+    Overview: for each series:
+        run a sliding window across the series
+        for each window
+            shorten the series with PAA (Piecewise Approximate Aggregation)
+            discretise the shortened series into fixed bins
+            form a word from these discrete values
+    by default SAX produces a single word per series (window_size=0).
+    SAX returns a pandas data frame where column 0 is the histogram (sparse
+    pd.series)
+    of each series.
+
+    Parameters
+    ----------
+    word_length:         int, length of word to shorten window to (using
+    PAA) (default 8)
+    alphabet_size:       int, number of values to discretise each value
+    to (default to 4)
+    window_size:         int, size of window for sliding. Input series
+    length for whole series transform (default to 12)
+    remove_repeat_words: boolean, whether to use numerosity reduction (
+    default False)
+    save_words:          boolean, whether to use numerosity reduction (
+    default False)
+
+    return_pandas_data_series:          boolean, default = True
+        set to true to return Pandas Series as a result of transform.
+        setting to true reduces speed significantly but is required for
+        automatic test.
+
+    Attributes
+    ----------
+    words:      history = []
+    """
+    def __init__(
+        self,
+        word_length=8,
+        alphabet_size=4,
+        alphabet_size_angle=4,
+        window_size=0,
+        remove_repeat_words=False,
+        save_words=False,
+        return_pandas_data_series=True,
+        feat_list=None,
+        return_feat_freq=False
+    ):
+        self.word_length = word_length
+        self.alphabet_size = alphabet_size
+        self.alphabet_size_angle = alphabet_size_angle
+        self.window_size = window_size
+        self.remove_repeat_words = remove_repeat_words
+        self.save_words = save_words
+        self.return_pandas_data_series = return_pandas_data_series
+        self.return_feat_freq = return_feat_freq
+        self.words = []
+        self.bp_words = []
+
+        self.feat_list = feat_list
+
+        if self.feat_list is None:
+            self.feat_list = ['max', 'min', 'mean', 'median', 'var', 
+                              'skew', 'slope', 'range', 'IQR', 'entropy', 
+                              'mean_sec_deri_central', 'apEn', 'mean_abs_ch', 'sampEn',
+                              'abs_sum_of_ch', 'kurtosis','abs_en', 'bEn']
+
+        self.num_feat = len(self.feat_list)
+        self.word_length = int(word_length/4*4)
+        self.mindist_table = self._generate_mindist()
+        self.feat_freq_dict = None
+
+    def transform(self,X,y=None):
+        """Transform data.
+
+        Parameters
+        ----------
+        X : 2d numpy array [N_instances,N_timepoints]
+
+        Returns
+        -------
+        dims: Pandas data frame with first dimension in column zero
+        """
+        self.breakpoints = self._generate_breakpoints()
+        breakpoints = self._generate_breakpoints()
+        breakpoints_angle = self._generate_angle_breakpoints()
+
+        # print(breakpoints)
+        n_instances,series_length = X.shape
+
+        if self.window_size==0:
+            self.window_size =series_length
+
+        bags = pd.DataFrame()
+        self.words = []
+        dim = []
+        num_windows_per_inst = series_length - self.window_size + 1
+        self.bp_words = np.zeros((n_instances,num_windows_per_inst,int(self.word_length/4*self.num_feat)))
+
+        if self.return_feat_freq:
+            self.feat_freq_dict = {}
+        for i in range(n_instances):
+            bag = {}
+            lastWord = -1
+
+            words = []
+            
+            num_windows_per_inst = series_length - self.window_size + 1
+
+            split = X[i,np.arange(self.window_size)[None,:] + np.arange(num_windows_per_inst)[:,None]]
+            split = scipy.stats.zscore(split,axis=1)
+
+
+            """calculate the features for each
+            """
+            # print(split.shape)
+            paavfd = PAASAXVFD(num_intervals=self.word_length/4, feat_list=self.feat_list)
+            # paa = PAA(num_intervals=3)
+            
+            # data = pd.DataFrame()
+            # data[0] = [pd.Series(x,dtype=np.float32) for x in split]
+
+            data = split
+            patterns= paavfd.transform(data)
+            patterns = np.asarray([a.values for a in patterns.iloc[:,0]])
+            
+            patterns = patterns.reshape(-1, len(self.feat_list))
+            patterns = np.nan_to_num(patterns, nan=0.0) # nan value
+
+            # znorm some features
+            mns = patterns.mean(axis=0, keepdims=True)
+            sstd = patterns.std(axis=0, keepdims=True)    
+            mns[0, :-5], sstd[0, :-5] = 0, 1
+            sstd[sstd == 0] = 1 # check if there is constant data
+            patterns = (patterns - mns) / sstd
+            patterns = patterns.reshape(1,-1)
+            
+
+            """quantization
+            """
+            for n in range(patterns.shape[0]):
+                pattern = patterns[n,:]
+                word_sax, bp_indices_sax = self._create_word(pattern,breakpoints)
+                
+                # print(np.concatenate([bp_indices_sax, bp_indices_trend]).shape)
+                words.append(word_sax)
+
+                self.bp_words[i,n,:] = bp_indices_sax
+                
+                lastWord = self._add_to_bag(bag,word_sax,lastWord)
+
+            if self.save_words:
+                self.words.append(words)
+                
+
+            dim.append(pd.Series(bag) if self.return_pandas_data_series else bag)
+
+        # histogram = self.create_bag(self.words)
+
+        # self.histogram = histogram
+        self.histogram = None
+
+        bags[0] = dim
+
+        if self.return_feat_freq:
+            
+            self.feat_freq_dict = self._create_feat_freq()
+
+        return bags
+
+    def fit_transform(self, X, y=None):
+        
+        self.transform(X, y)
+        return self.bp_words
+
+    def distance(self, X, Y, w, n, k):
+
+        """Check dimension
+        """
+        if len(X.shape) == 3:
+            X, Y = X[:,0,:], Y[:,0,:]
+
+        """Check precision type
+        """
+        
+        X = X.astype(np.int32)
+        Y = Y.astype(np.int32)
+
+        print(X.shape, Y.shape)
+
+        # broadcast
+        Y_rep = np.repeat(Y[:, None, :], len(X), axis=1)
+        X_rep = np.repeat(X[None, :, :], len(Y), axis=0)
+
+        mindist_mat = self.mindist_table[Y_rep, X_rep]
+
+        mindist_mat = mindist_mat.reshape(mindist_mat.shape[0], mindist_mat.shape[1], -1, k)  
+        # shape: n_Y x n_X x n_seg x n_feat
+
+        Y_rep = Y_rep.reshape(len(Y), len(X), int(w/k), k)
+        X_rep = X_rep.reshape(len(Y), len(X), int(w/k), k)
+        freq_diff_mat = np.zeros((len(Y), len(X), int(w/k), 1))
+
+        for i in range(freq_diff_mat.shape[0]):
+            for j in range(freq_diff_mat.shape[1]):
+                for m in range(freq_diff_mat.shape[2]):
+                    
+                    feat_y = tuple(Y_rep[i,j,m].tolist())
+                    if feat_y in self.feat_freq_dict.keys():
+                        freq_y = self.feat_freq_dict[feat_y]
+                    else:
+                        freq_y = 0
+
+                    feat_x = tuple(X_rep[i,j,m].tolist())
+                    if feat_x in self.feat_freq_dict.keys():
+                        freq_x = self.feat_freq_dict[feat_x]
+                    else:
+                        freq_x = 0
+                    
+                    freq_diff_mat[i,j,m] = np.abs(freq_x - freq_y)
+        
+        print("mindist.shape: ", mindist_mat.shape)
+        print("freq_diff_mat.shape: ", freq_diff_mat.shape)
+        # print(freq_diff_mat[:5,:5])
+
+        weighted_dist_mat = (freq_diff_mat * mindist_mat**2).reshape(len(Y), len(X), -1)
+        dist_mat = np.sqrt(n/w * np.sum(weighted_dist_mat, axis=-1))
+        # dist_mat = np.sqrt(n/w * np.sum(mindist_mat**2, axis=-1))
+        # dist_mat = np.sqrt(n/w * np.sum(mindist_mat**2, axis=-1))
+        return dist_mat
+
+
+    def _create_feat_freq(self):
+
+        transformed_data = np.array(self.bp_words).reshape(-1, len(self.feat_list))
+        # print("transformed data: ", transformed_data[:10])
+        uniq, cnts = np.unique(transformed_data, axis=0, return_counts=True)
+        feat_freq_dict = {}
+        for i in range(len(uniq)):
+            feat_freq_dict[tuple(uniq[i].tolist())] = cnts[i]/len(transformed_data) # freq
+
+        return feat_freq_dict
+
+    def _create_word(self, pattern, breakpoints):
+        word = 0
+        bp_indices = np.zeros_like(pattern)
+        for i in range(len(pattern)):
+            for bp in range(self.alphabet_size):
+                if pattern[i] <= breakpoints[bp]:
+                    bp_indices[i] = bp
+                    word = (word << 2) | bp
+                    break
+
+        return word,bp_indices
+
+    def _add_to_bag(self, bag, word, last_word):
+        if self.remove_repeat_words and word == last_word:
+            return False
+        bag[word] = bag.get(word, 0) + 1
+        return True
+
+    def _generate_breakpoints(self):
+        # Pre-made gaussian curve breakpoints from UEA TSC codebase
+        return {
+            2: [0, sys.float_info.max],
+            3: [-0.43, 0.43, sys.float_info.max],
+            4: [-0.67, 0, 0.67, sys.float_info.max],
+            5: [-0.84, -0.25, 0.25, 0.84, sys.float_info.max],
+            6: [-0.97, -0.43, 0, 0.43, 0.97, sys.float_info.max],
+            7: [-1.07, -0.57, -0.18, 0.18, 0.57, 1.07, sys.float_info.max],
+            8: [-1.15, -0.67, -0.32, 0, 0.32, 0.67, 1.15, sys.float_info.max],
+            9: [-1.22, -0.76, -0.43, -0.14, 0.14, 0.43, 0.76, 1.22, sys.float_info.max],
+            10: [
+                -1.28,
+                -0.84,
+                -0.52,
+                -0.25,
+                0.0,
+                0.25,
+                0.52,
+                0.84,
+                1.28,
+                sys.float_info.max,
+            ],
+        }[self.alphabet_size]
+
+    def _generate_angle_breakpoints(self):
+        # Pre-made gaussian curve breakpoints from UEA TSC codebase
+        return {
+            2: [0, sys.float_info.max],
+            3: [-5, 5, sys.float_info.max],
+            4: [-30, 0, 30, sys.float_info.max],
+            5: [-30, -5, 5, 30, sys.float_info.max],
+            6: [-30, -5, 0, 5, 30, sys.float_info.max],
+        }[self.alphabet_size_angle]
+    
+    def _generate_mindist(self):
+
+        return {
+            
+            4: np.array([[0., 0., 0.67, 1.34], [0., 0., 0., 0.67], [0.67, 0., 0., 0.], [1.34, 0.67, 0., 0.]]),
+        
+        }[self.alphabet_size]
+
+    def create_feature_names(sfa_words):
+        """Create feature names."""
+        feature_names = set()
+        for t_words in sfa_words:
+            for t_word in t_words:
+                feature_names.add(t_word)
+        return feature_names
+    
+    def create_bag(self,words):
+        bag_of_words = None
+        n_instances = len(words)
+
+        breakpoints = self.breakpoints
+        word_length = self.word_length
+
+        feature_count = np.uint32(self.alphabet_size ** word_length)
+        all_win_words = np.zeros((n_instances,feature_count),dtype=np.uint32)
+
+        # print(all_win_words.shape, len(words[0]))
+        for j in range(n_instances):
+            if self.remove_repeat_words:
+                masked = np.nonzero(words[j])
+                all_win_words[j,:] = np.bincount(words[j][masked],minlength=feature_count)
+
+            else:
+                all_win_words[j,:] = np.bincount(words[j],minlength=feature_count)
+        return all_win_words
+
+    @classmethod
+    def get_test_params(cls, parameter_set="default"):
+        """Return testing parameter settings for the estimator.
+
+        Parameters
+        ----------
+        parameter_set : str, default="default"
+            Name of the set of test parameters to return, for use in tests. If no
+            special parameters are defined for a value, will return `"default"` set.
+
+
+        Returns
+        -------
+        params : dict or list of dict, default = {}
+            Parameters to create testing instances of the class
+            Each dict are parameters to construct an "interesting" test instance, i.e.,
+            `MyClass(**params)` or `MyClass(**params[i])` creates a valid test instance.
+            `create_test_instance` uses the first (or only) dictionary in `params`
+        """
+        # small word length, window size for testing
+        params = {"word_length": 2, "window_size": 4}
+        return params        

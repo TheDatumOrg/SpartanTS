@@ -1,0 +1,10 @@
+{
+    "save_words":true,
+    "window_size":0,
+    "alphabet_size":4,
+    "word_length":8,
+    "metric":"symbolic_l1",
+    "binning_method":"equi-depth",
+    "lower_bounding":false,
+    "norm":true
+}

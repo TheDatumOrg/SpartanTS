@@ -1,0 +1,8 @@
+{
+    "save_words":true,
+    "window_size":0.05,
+    "alphabet_size":4,
+    "word_length":4,
+    "metric":"hist_euclidean",
+    "remove_repeat_words":true
+}

@@ -1,0 +1,10 @@
+{
+    "alphabet_size":4,
+    "window_size":0,
+    "word_length":8,
+    "binning_method":"equi-depth",
+    "remove_repeat_words":true,
+    "metric":"symbolic_l1",
+    "assignment_policy":"DAA",
+    "lamda": 0.5
+}
