@@ -1,0 +1,7 @@
+{
+    "save_words":true,
+    "window_size":0,
+    "alphabet_size":4,
+    "word_length":24,
+    "metric":"symbolic_l1"
+}
