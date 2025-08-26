@@ -67,6 +67,9 @@ if __name__ == "__main__":
             if eval_task == 'classification':
                 call_string = 'python -m benchmark.eval_classfication --data {} --classifier {} --norm {} --problem {} --itr {} --config {} --downsample {}'.format(data_path,classifier_name,normalization,dataset,itr,config, downsample_rate)
             elif eval_task == 'clustering':
+
+                if i >= dset_info.shape[0] - 2 and repr_type == 'bop': # skip large dataset for oom
+                    continue
                 call_string = 'python -m benchmark.eval_clustering --data {} --classifier {} --norm {} --problem {} --itr {} --config {} --clust_model {} --linkage {} --kmedoids_type {} -b {} -t {}'.format(data_path,classifier_name,normalization,dataset,itr,config, clust_model, linkage, kmedoids_type, data_split, repr_type)
             elif eval_task == 'tlb':
                 call_string = 'python -m benchmark.eval_tlb --data {} --problem {} -x {} --alpha_max {} --alpha_min {} --wordlen_max {} --wordlen_min {}'.format(data_path, dataset, i, alphabet_max, alphabet_min, wordlen_max, wordlen_min)
@@ -75,12 +78,14 @@ if __name__ == "__main__":
 
     elif eval_task == 'anomaly':
 
-        dataset_list = ['KDD21'] # change the dataset name as you need
+        dataset_list = ['Occupancy', 'SensorScope', 'SMD',         'Dodgers',   'Genesis', 'IOPS', 
+                        'MGAB',      'NAB',         'NASA-MSL',    'NASA-SMAP', 'Daphnet', 'ECG',
+                        'GHL',       'MITDB',       'OPPORTUNITY', 'YAHOO',     'SVDB',    'KDD21'] # change the dataset name as you need
 
 
         for dataset in dataset_list:
 
-            datadir = f"../data/TSAD/TSB-UAD-Public/{dataset}"
+            datadir = os.path.join(data_path,dataset)
             for i, filename in enumerate(sorted(os.listdir(datadir))):
                 if not filename.endswith('.out'):
                     continue

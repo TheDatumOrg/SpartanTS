@@ -272,7 +272,7 @@ if __name__ == "__main__":
 
     print(tlb_results.tail())
 
-    outpath = "output/tlb"
+    outpath = "output/tlb" # change as needed
     os.makedirs(outpath, exist_ok=True)
 
     tlb_results.to_csv(os.path.join(outpath, f'{dataset}_tlb_results.csv'), index=False)

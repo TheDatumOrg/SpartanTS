@@ -1,0 +1,13 @@
+{
+    "save_words":true,
+    "window_size":100,
+    "alphabet_size":16,
+    "word_length":16,
+    "metric":"hist_euclidean",
+    "binning_method":"equi-depth",
+    "remove_repeat_words":true,
+    "lower_bounding":false,
+    "norm":true,
+    "n_jobs":-1,
+    "build_histogram": false
+}

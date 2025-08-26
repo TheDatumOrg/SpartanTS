@@ -1,0 +1,13 @@
+{
+    "alphabet_size":16,
+    "window_size":100,
+    "word_length":16,
+    "binning_method":"equi-depth",
+    "remove_repeat_words":true,
+    "metric":"hist_euclidean",
+    "build_histogram": false,
+    "bit_budget": 64,
+    "assignment_policy":"DAA",
+    "lamda": 0.5
+    
+}

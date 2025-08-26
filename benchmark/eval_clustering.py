@@ -128,20 +128,6 @@ if __name__ == "__main__":
             clf = SAXDictionaryClassifier(save_words = True)
         else:
             clf = SAXDictionaryClassifier(**model_kwargs)
-    elif classifier_name =='esax':
-        clf = ESAXDictionaryClassifier(**model_kwargs)
-    elif classifier_name =='1dsax':
-        clf = OneDSAXDictionaryClassifier(**model_kwargs)
-    elif classifier_name =='tfsax':
-        clf = TFSAXDictionaryClassifier(**model_kwargs)
-    elif classifier_name =='sax_dr':
-        clf = SAXDRDictionaryClassifier(**model_kwargs)
-    elif classifier_name =='sax_vfd':
-        clf = SAXVFDDictionaryClassifier(**model_kwargs)
-    elif classifier_name =='asax':
-        clf = ASAXDictionaryClassifier(**model_kwargs)
-    elif classifier_name =='twa_sax':
-        clf = TWASAXDictionaryClassifier(**model_kwargs)
     elif classifier_name == 'sfa':
         if config is None:
             clf = SFADictionaryClassifier(save_words=True)
